@@ -1,0 +1,107 @@
+基于SpringBoot、JPA的文件上传：
+  /**
+	 * 1.附件上传Controller
+	 * @param
+	 * @return List<FileInfo>
+	 */
+	@PostMapping("uploadFileInfo")
+	public List<FileInfo> uploadFileInfo(@RequestParam("multipartFile")MultipartFile[] multipartFiles) {
+
+		return productService.saveFilesInfo(multipartFiles);
+	}  
+  
+  //2.多个文件上传到服务器、文件信息入库service
+	public List<FileInfo> saveFilesInfo(MultipartFile[] multipartFiles) {
+    List<FileInfo> fileInfoList = new ArrayList<>();
+		FileInfo fileInfoResult = null;
+    
+    @Value("${file.upload-dir}")
+		private String fileUploadDir;//如E:/file
+    
+    java.nio.file.Path fileStorageLocation;//文件存储的地址
+		
+		Date date = new Date(System.currentTimeMillis());
+		SimpleDateFormat sdfDate = new SimpleDateFormat("yyyyMMdd");
+		SimpleDateFormat sdfTime = new SimpleDateFormat("yyyyMMddHHmmssSSS");//毫秒17位
+		String nowDate = sdfDate.format(date);
+		String nowTime = sdfTime.format(date);
+		//按日期动态新增文件夹
+		String filePath = fileUploadDir + "/" + nowDate;
+		log.info("含有日期的动态filePath:{}",filePath);
+    if (null != multipartFiles && multipartFiles.length>0) {
+        	//1.附件上传到服务器
+        	try {
+        		//获取文件路径
+        		fileStorageLocation = java.nio.file.Paths.get(filePath).toAbsolutePath().normalize();
+        		//判断文件路径是否存在
+        		Resource resource = new UrlResource(fileStorageLocation.toUri());
+      	        if(!resource.exists()) {
+      	        	Files.createDirectories(fileStorageLocation);
+      	        }
+        	} catch (IOException e) {
+        		throw new BusinessException("Sorry! Filename contains invalid path sequence ");
+        	}
+			for (int i = 0; i < multipartFiles.length; i++) {
+				MultipartFile multipartFile = multipartFiles[i];				
+				String originalFileName = StringUtils.cleanPath(multipartFile.getOriginalFilename());
+				log.info("原文件名称originalFileName:{}",originalFileName);
+				String suffix = originalFileName.substring(originalFileName.lastIndexOf("."));//获取"."和文件类型
+				String serverFileName = nowTime + suffix;//服务器存文件名称,格式如：时间戳.jpg
+				log.info("服务器存的文件名称serverFileName:{}",serverFileName);
+				if(originalFileName.contains("..")) {
+			        throw new BusinessException("Sorry! Filename contains invalid path sequence " + originalFileName);
+			    }
+				try {
+				      Path targetLocation = fileStorageLocation.resolve(serverFileName);//将文件复制到目标位置 (用相同名称替换现有文件)
+				      Files.copy(multipartFile.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
+			    } catch (IOException ex) {
+			    	throw new BusinessException("Could not store file " + originalFileName + ". Please try again!", ex);
+			    }
+				
+          //2.附件信息入库
+			    FileInfo fileInfo = new FileInfo();
+			    fileInfo.setFileName(originalFileName);
+			    fileInfo.setFilePath(filePath);
+			    fileInfo.setServerFileName(serverFileName);
+			    
+    			fileInfoResult = fileInfoRepository.save(fileInfo);
+			    if (null==fileInfoResult) {
+  					throw new BusinessException("附件信息存储到数据库--异常");
+  				}
+          fileInfoList.add(fileInfoResult);
+			}
+		}
+	  return fileInfoList;		
+  }
+  
+  //3.实体类
+  @Data
+  @EqualsAndHashCode(callSuper = true)
+  @Entity(name = "t_file_info")
+  public class FileInfo extends AbstractEntity{
+
+	    private String fileName;      
+      private String filePath;	
+	    private String serverFileName;	
+	    //@ManyToOne
+	    //@JsonIgnore
+	    //private Product product;
+	}
+  
+  //4.配置
+  		## MULTIPART (MultipartProperties)
+//		spring.servlet.multipart.enabled=true# 开启 multipart 上传功能
+//		spring.servlet.multipart.file-size-threshold=2KB# 文件写入磁盘的阈值
+//		spring.servlet.multipart.max-file-size=200MB# 最大文件大小
+//		spring.servlet.multipart.max-request-size=215MB# 最大请求大小
+
+		//对文件大小的限制,加在.yml配置文件中
+		servlet:
+		    multipart:
+		      enabled: true
+		      file-size-threshold: 2KB    
+		      max-file-size: 200MB 
+		      max-request-size: 215MB
+		## 文件存储所需参数,所有通过 REST APIs 上传的文件都将存储在此目录下
+//		file.upload-dir=./uploads
+		file.upload-dir = E:/file
