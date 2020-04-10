@@ -1,0 +1,167 @@
+package com.servicechain.shareservice.util;
+
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import javax.persistence.*;
+import javax.validation.constraints.DecimalMin;
+import javax.validation.constraints.Min;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
+import java.io.File;
+import java.io.Serializable;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+@Entity(name = "t_product")
+public class Product extends AbstractEntity{
+	@NotNull
+    @NotBlank
+    private String userId;
+    @NotBlank 
+    private String productName;
+    //一对一的三行核心代码
+    @OneToOne(cascade = CascadeType.ALL,fetch = FetchType.EAGER)
+    @JoinColumn(name = "product_id")
+    private ProductDetail productDetail;
+    
+    //以下都是一对多的三处核心代码
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    private List<FileInfo> fileInfoList = new ArrayList<>();
+    
+    public void addFileInfo(FileInfo fileInfo) {
+    	fileInfoList.add(fileInfo);
+    	fileInfo.setProduct( this );
+	}
+
+	public void removeFileInfo(FileInfo fileInfo) {
+		fileInfoList.remove(fileInfo);
+		fileInfo.setProduct(null);
+	}
+    
+}
+
+package com.servicechain.shareservice.util;
+
+
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import javax.persistence.Entity;
+import javax.validation.constraints.Email;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Pattern;
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+@Entity(name = "t_product_detail")
+public class ProductDetail extends AbstractEntity{
+	
+	//一对一的一行核心代码
+	private String productId;//关联条件,默认为空
+	
+	private String contacts;
+	@NotBlank
+	@Pattern(regexp = "^\\d{11}$", message = "手机号码格式错误")
+	private String phone;
+	@Email(message = "只能是有效的邮箱地址")
+	private String email;
+	
+}
+
+package com.servicechain.shareservice.util;
+
+import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
+import javax.persistence.ManyToOne;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+@Entity(name = "t_file_info")
+public class FileInfo extends AbstractEntity{
+
+	private String url;
+	
+	private String fileName;
+	
+	private String fileDir;
+	
+	private String serverFileName;
+	
+	//配合一对多的三行核心代码
+	@ManyToOne
+	@JsonIgnore
+	private Product product;//关联条件是product_id,默认为空
+	
+	@Enumerated(EnumType.STRING)
+    private FileStatus status = FileStatus.VALID;
+	
+	public enum FileStatus {
+		VALID, INVALID
+	}
+	
+}
+
+create table t_product
+(
+    id                 nvarchar(255) not null,
+    user_id            varchar(255)  not null comment '用户id',
+    product_name       varchar(255)  not null comment '商品名称',
+    product_id         varchar(255)   default null comment '商品id',
+    created_by         varchar(32) default null comment '创建人',
+    created_date       datetime    default current_timestamp comment '创建时间',
+    primary key (id)
+);
+
+create table t_product_detail
+(
+    id                    nvarchar(255) not null,
+    product_id            varchar(255)  default null comment '商品id',
+    contacts              varchar(32)   not null comment '联系人',
+    phone                 varchar(64)   not null comment '电话',
+    email                 varchar(64)   not null comment '邮件',
+    created_by            varchar(50) default null comment '创建人',
+    created_date          datetime    default current_timestamp comment '创建时间',
+    primary key (id)
+);
+
+create table t_file_info
+(
+    id                 nvarchar(255) not null,
+    product_id          varchar(255)  default null comment '商品id',
+    file_name           varchar(255) not null comment '原附件名称',
+    file_dir           varchar(255) not null comment '附件路径',
+    server_file_name   varchar(255) not null comment '服务器上的附件名称',
+    created_by         varchar(50) default null comment '创建人',
+    created_date       datetime    default current_timestamp comment '创建时间',
+    primary key (id)
+);
+
+代码中的使用：
+if (null != fileIds && fileIds.length>0) {//有附件编辑
+              log.info("编辑组件/代码--有附件编辑fileIds:{}",fileIds);
+              List<FileInfo> fileInfoList = new ArrayList<>();
+              for (int i = 0; i < fileIds.length; i++) {
+                   String id = fileIds[i];
+                   FileInfo fileInfoResult = fileInfoRepository.findById(id).orElseThrow(() ->{
+                        log.warn("编辑组件/代码--有附件--先查询附件信息--对应ID无法获取对象");
+                        return new NotFoundException("编辑组件/代码--有附件--先查询附件信息--无法获取实体对象");
+                   });
+                   fileInfoResult.setProduct(getProduct);
+                   fileInfoList.add(fileInfoResult);
+              }
+              getProduct.getFileInfoList().clear();
+              getProduct.getFileInfoList().addAll(fileInfoList);
+              log.info("编辑组件/代码---有附件---save之前的对象,商品id:{},文件信息:{}",getProduct.getId(),getProduct.getFileInfoList());
+              productResult = productRepository.save(getProduct);
+              
+官方文档
+https://docs.jboss.org/hibernate/orm/5.4/userguide/html_single/Hibernate_User_Guide.html#associations-one-to-one
