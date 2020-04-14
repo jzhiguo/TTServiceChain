@@ -1,0 +1,213 @@
+亮点说明：http附件传输;表单接参;LinkedMultiValueMap传附件;json中的data转为List<Map<String,Object>>
+
+	/**
+	 * 1.发布简历,含附件上传--表单提交方式(Controller暴露接口)
+	 * @param productDetail
+	 * @return
+	 */
+	@PostMapping(value="saveResume",consumes="multipart/form-data")
+	public List<Map<String,Object>> saveResumeProductInfo(ResumeProduct resumeProduct) {
+		return productService.saveResume(resumeProduct);
+	}
+	
+    //2.发布简历,含附件上传(service实现业务逻辑)
+	@Transactional (readOnly=false)
+	public List<Map<String,Object>> saveResume(ResumeProduct resumeProduct) {
+		List<Map<String,Object>> listObjectSec = null;
+    	log.info("发布简历--入参:{}",resumeProduct);
+    	if (null == resumeProduct || null == resumeProduct.getMultipartFiles() || resumeProduct.getMultipartFiles().length==0) {
+			throw new NotFoundException("发布简历,入参信息或简历附件为空...");
+		}
+		Product product = new Product();		
+		product.setUserId(this.GetUserInfoByLogin().getUserId());
+		product.setProductName(resumeProduct.getProductName());
+		product.setSettlementType(Product.SettlementType.OFFLINE);
+		product.setProductType(Product.ProductType.RESUME);
+		product.setLabel(resumeProduct.getLabel());
+		product.setPrice(resumeProduct.getPrice());
+		product.setBuyNumber(0);
+		product.setStatus(Product.ProductStatus.ON);
+		product.setReleaseDate(LocalDateTime.now());
+		ProductDetail productDetail = new ProductDetail();
+		productDetail.setContacts(resumeProduct.getBasicData().getName());
+		productDetail.setEmail(resumeProduct.getBasicData().getEmail());
+		productDetail.setPhone(resumeProduct.getBasicData().getPhone());
+		product.setProductDetail(productDetail);
+		Product productResult = productRepository.save(product);
+		log.info("简历存商品表,成功》》》》》》》》》》商品id:{}",productResult.getId());
+		if (null == productResult || null == productResult.getId()) {
+			log.warn("简历存商品表异常,发布失败");
+			throw new NotFoundException("简历存商品表异常,发布失败");
+		}
+		String relativeId = productResult.getId().replace("-", "");
+		log.info("去‘-’后的简历id:"+relativeId);
+		try {
+			Resume resume = new Resume();
+			resume.setBackgrInfo(resumeProduct.getBackgrInfo());
+			resume.setBasicData(resumeProduct.getBasicData());
+			resume.setEducationList(resumeProduct.getEducationList());
+			resume.setIssuer(resumeProduct.getIssuer());
+			resume.setJobList(resumeProduct.getJobList());
+			resume.setJobObjectiveData(resumeProduct.getJobObjectiveData());
+			resume.setProjectList(resumeProduct.getProjectList());
+			resume.setSkillList(resumeProduct.getSkillList());
+			resume.setSource("TTFWL");//默认传：TTFWL
+			resume.setTrainList(resumeProduct.getTrainList());
+//			resume.setFilePath(resumeProduct.getFilePath());//filePath;多文件之间用“|”拼接
+			resume.setRelativeId(relativeId);
+			resume.setIssuer(this.GetUserInfoByLogin().getUserId());
+			
+			String resumeJson = com.alibaba.fastjson.JSON.toJSONString(resume);
+			String aesResume= this.AES128(resumeJson);
+			String rsaResume= this.getRSASign(aesResume);
+			log.info("发布简历,含附件上传--ProductService--saveResume--AES128加密前resume参数:{}", resume);
+			log.info("发布简历,含附件上传--ProductService--saveResume--AES128加密后参数param:{}", aesResume);
+			log.info("发布简历,含附件上传--ProductService--saveResume--AES128加密后参数param的签名sign:{}", rsaResume);
+		    Map<String, Object> map = new HashMap<>();
+	        map.put("param", aesResume);//AES128加密的json
+	        map.put("sign", rsaResume);//param值的RSA签名
+	        map.put("source", "TTFWL");
+	        String url = host + newdispatchContext + saveResumeInterfaceName;
+	        log.info("ProductService--saveResume--调新派遣--发布简历接口,url>>>>{}", url);
+	        log.info("ProductService--saveResume--调新派遣--发布简历接口,参数：param==={},sign==={},source==={}", map.get("param"), map.get("sign"), map.get("source"));
+	        String tokenStr = this.GetUserInfoByLogin().getTokenStr();
+	        String resultStr = HttpUtil.sendPostRequestToResume(url, map,tokenStr);
+	        log.info("ProductService--saveResume--调新派遣--发布简历接口,返回值：{}", resultStr);
+	        if (null == resultStr || "".equals(resultStr)) {
+	        	throw new BusinessException("ProductService--saveResume--调新派遣--发布简历接口,返回值为空");
+			}
+	        org.json.JSONObject jsonobject = new org.json.JSONObject(resultStr);
+	        Object resultCode = jsonobject.get("code");
+	        
+	        if ("00".equals(resultCode)) {	        	
+	        	log.info("ProductService--saveResume--发布简历,不含附件成功,productId：{}", productResult.getId());
+	        	//2.1上传简历附件--核心代码
+	        	if (null != resumeProduct.getMultipartFiles() && resumeProduct.getMultipartFiles().length>0) {
+	        		MultiValueMap<String, Object> filesMap = new LinkedMultiValueMap<>();
+	        		for (MultipartFile file : resumeProduct.getMultipartFiles()) {
+	        			log.info("ProductService--saveResume--调新派遣--发布简历--附件接口,循环体中,file>>>>{}", file);
+	        			filesMap.add("files", new MultipartInputStreamFileResource(file.getInputStream(), file.getOriginalFilename()));
+	        		}
+	        		filesMap.add("relativeId", relativeId);
+//	        		String fileUrl = host + newdispatchContext + resumeUploadFile;
+					String fileUrl = http://192.168.0.10:80/api/newdispatch/newdispatch/resumeImportForTT/backTTFile;
+	    	        log.info("ProductService--saveResume--调新派遣--发布简历--附件接口,fileUrl>>>>{}", fileUrl);
+//	    	        log.info("ProductService--saveResume--调新派遣--发布简历--附件接口,map--files>>>>{}", map.get("files"));
+	    	        String fileResult = HttpUtil.sendPostRequestToResumeFile(fileUrl, filesMap,tokenStr);
+	    	        log.info("ProductService--saveResume--调新派遣--发布简历--附件接口,返回值：{}", fileResult);
+	    	        if (null == fileResult || "".equals(fileResult)) {
+	    	        	throw new BusinessException("ProductService--saveResume--调新派遣--发布简历--附件接口,返回值为空");
+	    			}
+	    	        com.alibaba.fastjson.JSONObject jsonObject;
+    	        	String fileJson = StringEscapeUtils.unescapeJava(com.alibaba.fastjson.JSON.toJSONString(fileResult));
+    				String fileJsonSub =fileJson.substring(1, fileJson.length() - 1);
+    	        	jsonObject = com.alibaba.fastjson.JSONObject.parseObject(fileJsonSub);
+    	 			if ("00".equals(jsonObject.get("code"))) {
+	    	        	log.info("ProductService--saveResume--调新派遣--发布简历--附件接口成功");
+	    	        	if (null != jsonObject.get("data") || !"".equals(jsonObject.get("data"))) {
+	     					//json中的data转为List<Map<String,Object>>
+	     			        listObjectSec = JSONArray.parseObject(jsonObject.get("data").toString(),List.class);
+	     			        log.info("简历附件接口调通--返参List<Map<String,Object>>:",listObjectSec);
+	     			        Map<String,Object> resultMap = new HashMap<String, Object>();
+	     			        for(Map<String,Object> mapList : listObjectSec){
+	     			            for (Map.Entry entry : mapList.entrySet()){
+	     			                System.out.println( "map的key:"+entry.getKey()  + "map的value:" +entry.getValue());
+//	     			                resultMap.put(entry.getKey().toString(), entry.getValue());
+	     			                log.info("简历附件上传成功--返回的文件信息List中的值--map的key:{},map的value:{}",entry.getKey(),entry.getValue());
+	     			            }
+	     			        }
+//	     			        filesList.add(resultMap);
+		    	        }
+	    	        }
+				}    			
+			} else {
+				log.info("ProductService--saveResume--调新派遣--发布简历接口,返回code：{}", resultCode.toString());
+	        	throw new BusinessException("ProductService--saveResume--调新派遣--发布简历接口--异常");
+			}
+		} catch (Exception e) {
+			log.info("ProductService--saveResume--调新派遣--发布简历接口--异常:{}",e.getMessage());
+			throw new BusinessException("ProductService--saveResume--发布简历--异常:{}",e) ;
+		}
+		return listObjectSec;
+	}	
+
+//3.自己封装的File类	
+public class MultipartInputStreamFileResource extends InputStreamResource{
+
+	private final String filename;
+
+    public MultipartInputStreamFileResource(InputStream inputStream, String filename) {
+        super(inputStream);
+        this.filename = filename;
+    }
+
+    @Override
+    public String getFilename() {
+        return this.filename;
+    }
+
+    @Override
+    public long contentLength() throws IOException {
+        return -1; 
+    }
+}
+
+//4.HttpUtil调第三方接口
+public static String sendPostRequestToResumeFile(String url, MultiValueMap<String, Object> params,String token){
+        RestTemplate client = new RestTemplate();
+        //新建Http头，add方法可以添加参数
+        HttpHeaders headers = new HttpHeaders();     
+        headers.add("Authorization",token);
+        //设置请求发送方式
+        HttpMethod method = HttpMethod.POST;
+        // 以表单的方式提交
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        //将请求头部和参数合成一个请求
+        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<MultiValueMap<String, Object>>(params, headers);
+        //执行HTTP请求，将返回的结构使用String 类格式化（可设置为对应返回值格式的类）
+        ResponseEntity<String> response = client.exchange(url, method, requestEntity,String.class);
+
+        return response.getBody();
+    }
+
+//5.第三方接口的Controller
+@PostMapping(value = "/backTTFile" ,consumes="multipart/form-data")
+public void backTTFile(@RequestParam MultipartFile[] files, String relativeId){
+            if(files != null ){
+                for (MultipartFile multipartFile : files) {
+				//对文件执行操作
+                    //dataMap = uploadBackFile(multipartFile,relativeId);
+                    if("01".equals(dataMap.get("code"))){
+
+                        return Result.buildFail("01", "更新简历附件信息失败！");
+
+                    }else {
+                        list.add(dataMap);
+                    }
+                }
+            }
+}
+
+//6.main方法,测试--xz邓雷
+    static RestTemplate restTemplate = new RestTemplate();
+
+    public static void main(String[] args) throws Exception {
+        restTemplate.getMessageConverters();
+
+        LinkedMultiValueMap<String, Object> filesMap = new LinkedMultiValueMap<>();
+        filesMap.add("testfile", new MultipartInputStreamFileResource(new ClassPathResource("test.json").getInputStream(), "filename"));
+        filesMap.add("testfile", new MultipartInputStreamFileResource(new ClassPathResource("test.json").getInputStream(), "filename"));
+        filesMap.add("relativeId", "aaa");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        HttpEntity<LinkedMultiValueMap<String, Object>> request = new HttpEntity<LinkedMultiValueMap<String, Object>>(filesMap, headers);
+        String url = "http://localhost:8081/restaurant/interface/test/upload";
+/*  restTemplate.getMessageConverters().add(new FormHttpMessageConverter());
+    restTemplate.getMessageConverters().add(
+            new MappingJackson2HttpMessageConverter());*/
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+        System.out.println("response : " + response);
+        System.out.println(response.getBody());
+    }
+
+
