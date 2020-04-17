@@ -110,6 +110,7 @@ public class FileInfo extends AbstractEntity{
 	
 }
 
+drop table if exists t_product;//规范的mysql建表语句
 create table t_product
 (
     id                 nvarchar(255) not null,
@@ -121,6 +122,7 @@ create table t_product
     primary key (id)
 );
 
+drop table if exists t_product_detail;
 create table t_product_detail
 (
     id                    nvarchar(255) not null,
@@ -133,6 +135,7 @@ create table t_product_detail
     primary key (id)
 );
 
+drop table if exists t_file_info;
 create table t_file_info
 (
     id                 nvarchar(255) not null,
