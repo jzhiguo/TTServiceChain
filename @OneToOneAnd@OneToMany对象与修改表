@@ -165,3 +165,159 @@ if (null != fileIds && fileIds.length>0) {//有附件编辑
               
 官方文档
 https://docs.jboss.org/hibernate/orm/5.4/userguide/html_single/Hibernate_User_Guide.html#associations-one-to-one
+
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+@Entity(name = "t_product")
+public class Product extends AbstractEntity{
+	@NotNull
+    @NotBlank
+    private String userId;
+    @NotBlank 
+    private String productName;
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    private ProductType productType = ProductType.CODE;
+    @DecimalMin(value = "0.00", inclusive = true, message = "不能小于{value}")
+    @Column(name = "price",precision=20, scale=2)
+    private BigDecimal price;
+    private String lastEdition;
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    private SettlementType settlementType = SettlementType.OFFLINE;
+    @NotNull
+    private LocalDateTime releaseDate;
+    @Min(value = 0, message = "不能小于{value}")
+    private int buyNumber;
+    private String label;
+    @Enumerated(EnumType.STRING)
+    private ProductStatus status = ProductStatus.ON;
+    @Enumerated(EnumType.STRING)
+    private AuditStatus auditStatus = AuditStatus.WAIT;//审核状态
+        
+    @OneToOne(cascade = CascadeType.ALL,fetch = FetchType.EAGER)
+    @JoinColumn(name = "product_id")
+    private ProductDetail productDetail;
+    
+    @Transient
+    private String[] ids;
+    
+    @Transient
+    private String[] deleteFileIds;
+    
+    public enum ProductStatus {
+        ON, OFF
+    }
+        
+    public enum AuditStatus {
+    	WAIT,SUCCESS,FAIL
+    }
+    
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)//, cascade = CascadeType.ALL
+    private List<FileInfo> fileInfoList = new ArrayList<>();
+    
+    public void addFileInfo(FileInfo fileInfo) {
+    	fileInfoList.add(fileInfo);
+    	fileInfo.setProduct( this );
+	}
+
+	public void removeFileInfo(FileInfo fileInfo) {
+		fileInfoList.remove(fileInfo);
+		fileInfo.setProduct(null);
+	}
+}
+
+#添加表字段语句
+alter table t_product add audit_status varchar(20) default null comment '审核状态(WAIT:待审核;SUCCESS:审核通过;FAIL:审核未通过)';
+
+#考虑到修改表之前的老数据
+update t_product set audit_status = SUCCESS where audit_status = NULL;
+
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.newtouch.servicechain.accountsservice.entity.validgroup.NewEntityChecks;
+import lombok.AccessLevel;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Setter;
+import org.passay.*;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.util.StringUtils;
+import javax.persistence.*;
+import javax.validation.constraints.*;
+import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
+
+@Entity(name = "Users")
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class User extends AbstractEntity {
+    @NotBlank
+    @Setter(AccessLevel.NONE)
+    @Size(max = 100)
+    @Email(regexp = "^[a-zA-Z0-9.]+@newtouch\\.com$", message = "当前只能使用'@newtouch.com'后缀邮箱进行注册", groups = NewEntityChecks.class)
+    @Column(name = "username",columnDefinition="varchar(100) COMMENT '用户名'")
+    private String username;
+
+    @Setter(AccessLevel.NONE)
+    @NotBlank(groups = NewEntityChecks.class, message = "密码不能为空")
+    @Column(name = "password",columnDefinition="varchar(100) COMMENT '登录密码'")
+    @JsonIgnore
+    private String password;
+
+    @Size(min = 1, max = 50, groups = NewEntityChecks.class, message = "用户名称不能为空，并且长度不能超过{max}")
+    private String displayName;
+
+    @AssertFalse(groups = NewEntityChecks.class, message = "新增用户必须是激活状态")
+    private boolean locked = false;
+
+    @AssertFalse(groups = NewEntityChecks.class, message = "新增用户需要激活才能登录")
+    private boolean activated = false;
+
+    @Column(name = "last_login_time",columnDefinition="datetime COMMENT '最后登录时间'")
+    private LocalDateTime lastLoginTime;
+    //账户地址
+    private String accountAddress;
+    //邮箱认证标识
+    private boolean emailAuth=false;
+    //手机号认证
+    private boolean mobileAuth=false;
+     
+    //开始时间
+    @DateTimeFormat(pattern="yyyy-MM-dd")
+    private LocalDate startDate;
+    
+    public void setPlainPassword(String password) {
+        if (!StringUtils.hasText(password)){
+            this.password = "";
+        }else{
+            this.password = PasswordEncoderFactories.createDelegatingPasswordEncoder().encode(password);
+        }
+    }
+
+    public User(String username, String displayName) {
+        this.username = username;
+        this.displayName = displayName;
+    }
+    public User(){}
+
+    public static boolean validatePassword(String password){
+        CharacterCharacteristicsRule characterCharacteristicsRule = new CharacterCharacteristicsRule(
+                4,
+                new CharacterRule(EnglishCharacterData.LowerCase),
+                new CharacterRule(EnglishCharacterData.UpperCase),
+                new CharacterRule(EnglishCharacterData.Digit),
+                new CharacterRule(EnglishCharacterData.Special)
+        );
+        PasswordValidator passwordValidator = new PasswordValidator(
+                characterCharacteristicsRule,
+                new LengthRule(6,10)
+                );
+        PasswordData passwordData = new PasswordData(password);
+        return passwordValidator.validate(passwordData).isValid();
+    }
+}
+
+
